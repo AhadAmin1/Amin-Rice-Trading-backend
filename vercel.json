@@ -4,6 +4,6 @@
     "api/index.ts": { "runtime": "@vercel/node" }
   },
   "rewrites": [
-    { "source": "/", "destination": "/api" }
+    { "source": "/api", "destination": "/api" }
   ]
 }
