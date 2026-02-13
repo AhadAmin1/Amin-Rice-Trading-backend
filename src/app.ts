@@ -45,14 +45,14 @@ app.use("/api", apiRoutes);
 // Health check
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-// Serve static files (favicon, images, etc.)
+// Serve public static files (favicon, images)
 const publicPath = path.join(__dirname, "public");
 app.use(express.static(publicPath));
 
-// Root route (optional, just redirect to /api)
+// Root redirect to /api
 app.get("/", (req, res) => res.redirect("/api"));
 
-// Serve frontend (if outside Vercel)
+// Optional: serve frontend if outside Vercel
 const frontendPath = path.resolve(__dirname, "../../frontend/dist");
 if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
   app.use(express.static(frontendPath));
