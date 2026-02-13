@@ -28,55 +28,37 @@
 // export default app;
 
 
-import express, { Request, Response, NextFunction } from "express";
+import express from "express";
 import cors from "cors";
-import path from "path";
 import apiRoutes from "./routes/index";
+import path from "path";
 
 const app = express();
 
-app.use(cors({ origin: "*", credentials: true }));
-app.use(express.json({ limit: "10mb" }));
+app.use(cors());
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // API routes
 app.use("/api", apiRoutes);
 
 // Health check
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "ok" });
-});
+app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 
-// Root
-app.get("/", (_req: Request, res: Response) => {
-  res.status(200).json({ success: true, message: "Backend is running 🚀" });
-});
+// Serve static files (favicon, images, etc.)
+const publicPath = path.join(__dirname, "public");
+app.use(express.static(publicPath));
 
-// Public folder
-app.use(express.static(path.join(__dirname, "public")));
+// Root route (optional, just redirect to /api)
+app.get("/", (req, res) => res.redirect("/api"));
 
-// Frontend serve (non-Vercel prod)
+// Serve frontend (if outside Vercel)
+const frontendPath = path.resolve(__dirname, "../../frontend/dist");
 if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
-  const frontendPath = path.resolve(__dirname, "../../frontend/dist");
   app.use(express.static(frontendPath));
-  app.get("*", (_req, res) => {
-    res.sendFile(path.resolve(frontendPath, "index.html"));
-  });
+  app.get("*", (req, res) =>
+    res.sendFile(path.resolve(frontendPath, "index.html"))
+  );
 }
-
-// 404 handler
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ success: false, message: "Route not found" });
-});
-
-// Global error handler
-app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("Server Error:", err);
-  res.status(500).json({
-    success: false,
-    message: "Internal Server Error",
-    error: process.env.NODE_ENV === "development" ? err.message : undefined,
-  });
-});
 
 export default app;

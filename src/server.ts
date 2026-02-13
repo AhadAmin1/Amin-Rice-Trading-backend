@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config(); // 👈 YE LINE SAB SE UPAR
+dotenv.config(); 
 
 import app from "./app";
 import connectDB from "./db";
