@@ -49,8 +49,9 @@ app.get("/api/health", (req, res) => res.json({ status: "ok" }));
 const publicPath = path.join(__dirname, "public");
 app.use(express.static(publicPath));
 
-// Root redirect to /api
-app.get("/", (req, res) => res.redirect("/api"));
+// Root route
+app.get("/", (req, res) => res.json({ message: "Backend is running 🚀", documentation: "/api/health" }));
+
 
 // Optional: serve frontend if outside Vercel
 const frontendPath = path.resolve(__dirname, "../../frontend/dist");
