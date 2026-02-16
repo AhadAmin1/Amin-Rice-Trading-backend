@@ -17,6 +17,7 @@ export interface IBill extends mongoose.Document {
   stockId: Types.ObjectId;
   purchaseCost: number;
   profit: number;
+  bhardana?: number;
 }
 
 const BillSchema = new mongoose.Schema<IBill>(
@@ -37,6 +38,7 @@ const BillSchema = new mongoose.Schema<IBill>(
     stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
     purchaseCost: Number,
     profit: Number,
+    bhardana: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

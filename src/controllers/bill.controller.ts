@@ -36,7 +36,8 @@ export const createBill = async (req: Request, res: Response) => {
       stockId,
       purchaseCost,
       profit,
-      rateType
+      rateType,
+      bhardana
     } = req.body;
 
     // 1️⃣ Validate Stock
@@ -76,7 +77,8 @@ export const createBill = async (req: Request, res: Response) => {
       stockId,
       purchaseCost,
       profit,
-      rateType
+      rateType,
+      bhardana: bhardana || 0
     });
     await bill.save();
 
@@ -108,6 +110,7 @@ export const createBill = async (req: Request, res: Response) => {
       katte,
       weight,
       rate,
+      bhardana: bhardana || 0,
       debit: totalAmount,
       credit: 0,
       balance: buyerBalance + totalAmount // Balance increases
@@ -241,6 +244,7 @@ export const updateBill = async (req: Request, res: Response) => {
         buyerLedger.katte = katte;
         buyerLedger.weight = weight;
         buyerLedger.rate = rate;
+        buyerLedger.bhardana = req.body.bhardana || 0;
         await buyerLedger.save();
     }
     await recalculateLedger(buyerId);

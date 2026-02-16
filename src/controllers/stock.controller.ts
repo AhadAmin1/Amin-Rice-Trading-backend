@@ -25,6 +25,7 @@ export const addStock = async (req: Request, res: Response) => {
       weightPerKatta,
       purchaseRate,
       rateType,
+      bhardana
     } = req.body;
 
     const totalWeight = katte * weightPerKatta;
@@ -32,6 +33,26 @@ export const addStock = async (req: Request, res: Response) => {
       rateType === "per_kg"
         ? totalWeight * purchaseRate
         : katte * purchaseRate;
+
+    // Total Amount should include Bhardana? 
+    // User said: "miller ke khate me plus hoga". 
+    // Usually Stock "Total Amount" is (Quantity * Rate) + Expense.
+    // I will assume implicit addition for now, or assume the frontend passes the FINAL totalAmount?
+    // Wait, the controller calculates totalAmount:
+    // const totalAmount = ...
+    // If I add bhardana, I should probably add it to totalAmount or keep it separate but add to ledger?
+    // "bhardana alag bhi dikhe ga aur total me plus hokr total bhi dikhega"
+    // So totalAmount SHOULD include bhardana.
+    
+    // BUT, the current code calculates totalAmount based on rate.
+    // I should add bhardana to totalAmount here?
+    // OR should I respect the 'totalAmount' if passed from frontend?
+    // The current code ignores frontend 'totalAmount' and recalculates it.
+    
+    // Let's modify the calculation to include bhardana.
+    const finalTotalAmount = (rateType === "per_kg"
+        ? totalWeight * purchaseRate
+        : katte * purchaseRate) + (Number(bhardana) || 0);
 
     // 1. Create Stock
     const stock = new Stock({
@@ -44,9 +65,10 @@ export const addStock = async (req: Request, res: Response) => {
       totalWeight,
       purchaseRate,
       rateType,
-      totalAmount,
+      totalAmount: finalTotalAmount,
       remainingKatte: katte,
       remainingWeight: totalWeight,
+      bhardana: bhardana || 0
     });
     await stock.save();
 
@@ -54,7 +76,7 @@ export const addStock = async (req: Request, res: Response) => {
     // Fetch last balance
     const lastEntry = await LedgerEntry.findOne({ partyId: millerId }).sort({ date: -1, createdAt: -1 });
     const lastBalance = lastEntry ? lastEntry.balance : 0;
-    const newBalance = lastBalance + totalAmount; // Debit increases payable for Miller
+    const newBalance = lastBalance + finalTotalAmount; // Debit increases payable for Miller
 
     const ledgerEntry = new LedgerEntry({
       partyId: millerId,
@@ -63,7 +85,8 @@ export const addStock = async (req: Request, res: Response) => {
       katte,
       weight: totalWeight,
       rate: purchaseRate,
-      debit: totalAmount,
+      bhardana: bhardana || 0,
+      debit: finalTotalAmount,
       credit: 0,
       balance: newBalance,
     });

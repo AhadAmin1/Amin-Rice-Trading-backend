@@ -13,6 +13,7 @@ export interface IStock extends Document {
   totalAmount: number;
   remainingKatte: number;
   remainingWeight: number;
+  bhardana?: number;
 }
 
 const StockSchema = new Schema({
@@ -28,6 +29,7 @@ const StockSchema = new Schema({
   totalAmount: { type: Number, required: true },
   remainingKatte: { type: Number, required: true },
   remainingWeight: { type: Number, required: true },
+  bhardana: { type: Number, default: 0 },
 }, { timestamps: true });
 
 export default mongoose.models.Stock || mongoose.model<IStock>('Stock', StockSchema);

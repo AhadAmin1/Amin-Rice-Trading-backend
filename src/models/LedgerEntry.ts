@@ -9,6 +9,7 @@ export interface ILedgerEntry extends mongoose.Document {
   katte?: number;
   weight?: number;
   rate?: number;
+  bhardana?: number;
   debit: number;
   credit: number;
   balance: number;
@@ -24,6 +25,7 @@ const LedgerEntrySchema = new mongoose.Schema<ILedgerEntry>(
     katte: Number,
     weight: Number,
     rate: Number,
+    bhardana: { type: Number, default: 0 },
     debit: { type: Number, default: 0 },
     credit: { type: Number, default: 0 },
     balance: { type: Number, required: true },
