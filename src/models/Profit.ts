@@ -28,4 +28,4 @@ const ProfitSchema = new Schema({
   profit: { type: Number, required: true },
 }, { timestamps: true });
 
-export default mongoose.model<IProfit>('Profit', ProfitSchema);
+export default mongoose.models.Profit || mongoose.model<IProfit>('Profit', ProfitSchema);

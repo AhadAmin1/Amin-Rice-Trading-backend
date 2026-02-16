@@ -30,4 +30,4 @@ const StockSchema = new Schema({
   remainingWeight: { type: Number, required: true },
 }, { timestamps: true });
 
-export default mongoose.model<IStock>('Stock', StockSchema);
+export default mongoose.models.Stock || mongoose.model<IStock>('Stock', StockSchema);

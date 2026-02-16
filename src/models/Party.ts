@@ -17,4 +17,4 @@ const PartySchema = new mongoose.Schema<IParty>(
   { timestamps: true }
 );
 
-export default mongoose.model<IParty>('Party', PartySchema);
+export default mongoose.models.Party || mongoose.model<IParty>('Party', PartySchema);

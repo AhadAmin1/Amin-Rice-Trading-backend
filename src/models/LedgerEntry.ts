@@ -31,4 +31,4 @@ const LedgerEntrySchema = new mongoose.Schema<ILedgerEntry>(
   { timestamps: true }
 );
 
-export default mongoose.model<ILedgerEntry>('LedgerEntry', LedgerEntrySchema);
+export default mongoose.models.LedgerEntry || mongoose.model<ILedgerEntry>('LedgerEntry', LedgerEntrySchema);

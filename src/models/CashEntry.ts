@@ -18,4 +18,4 @@ const CashEntrySchema = new Schema({
   balance: { type: Number, required: true },
 }, { timestamps: true });
 
-export default mongoose.model<ICashEntry>('CashEntry', CashEntrySchema);
+export default mongoose.models.CashEntry || mongoose.model<ICashEntry>('CashEntry', CashEntrySchema);
