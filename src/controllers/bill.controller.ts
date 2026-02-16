@@ -19,6 +19,7 @@ const recalculateLedger = async (partyId: string) => {
 
 // POST /bills
 export const createBill = async (req: Request, res: Response) => {
+  console.log("📝 Controller: createBill started", req.body);
   try {
     const { 
       buyerId, 
@@ -134,6 +135,7 @@ export const createBill = async (req: Request, res: Response) => {
     stockItem.remainingWeight -= weight;
     await stockItem.save();
 
+    console.log("✅ Controller: createBill success", bill._id);
     res.status(201).json({ 
       bill, 
       stock: stockItem,
@@ -142,19 +144,22 @@ export const createBill = async (req: Request, res: Response) => {
       profitEntry 
     });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error creating bill" });
+  } catch (error: any) {
+    console.error("❌ Controller: createBill error:", error.message);
+    res.status(500).json({ message: "Error creating bill", error: error.message });
   }
 };
 
 // GET /bills
 export const getBills = async (req: Request, res: Response) => {
+  console.log("🔍 Controller: getBills started");
   try {
     const bills = await Bill.find().sort({ createdAt: -1 });
+    console.log(`✅ Controller: getBills success - Found ${bills.length} bills`);
     res.json(bills);
-  } catch (error) {
-    res.status(500).json({ message: "Error fetching bills" });
+  } catch (error: any) {
+    console.error("❌ Controller: getBills error:", error.message);
+    res.status(500).json({ message: "Error fetching bills", error: error.message });
   }
 };
 

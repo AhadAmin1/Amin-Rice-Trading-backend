@@ -4,6 +4,7 @@ import Party from "../models/Party";
 
 // GET /ledger/:partyId  → Full ledger of a party with running balance
 export const getLedgerByParty = async (req: Request, res: Response) => {
+  console.log("🔍 Controller: getLedgerByParty started", req.params.partyId);
   try {
     const { partyId } = req.params;
     
@@ -19,10 +20,11 @@ export const getLedgerByParty = async (req: Request, res: Response) => {
       };
     });
 
+    console.log(`✅ Controller: getLedgerByParty success - Found ${ledger.length} entries`);
     res.json(ledgerWithBalance);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error fetching ledger" });
+  } catch (error: any) {
+    console.error("❌ Controller: getLedgerByParty error:", error.message);
+    res.status(500).json({ message: "Error fetching ledger", error: error.message });
   }
 };
 
@@ -69,6 +71,7 @@ import CashEntry from "../models/CashEntry";
 import Profit from "../models/Profit";
 
 export const getDashboardStats = async (req: Request, res: Response) => {
+  console.log("🔍 Controller: getDashboardStats started");
   try {
     // 1. Stock
     const stocks = await Stock.find();
@@ -128,6 +131,7 @@ export const getDashboardStats = async (req: Request, res: Response) => {
     const profits = await Profit.find();
     const totalProfit = profits.reduce((sum, p) => sum + p.profit, 0);
 
+    console.log("✅ Controller: getDashboardStats success");
     res.json({
       totalStockKatte,
       totalStockWeight,
@@ -136,9 +140,9 @@ export const getDashboardStats = async (req: Request, res: Response) => {
       totalPayable,
       totalProfit
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Dashboard stats failed" });
+  } catch (err: any) {
+    console.error("❌ Controller: getDashboardStats error:", err.message);
+    res.status(500).json({ message: "Dashboard stats failed", error: err.message });
   }
 };
 
