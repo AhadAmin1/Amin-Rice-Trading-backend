@@ -61,7 +61,7 @@ export const createBill = async (req: Request, res: Response) => {
         finalBillNo = (Number(lastBill.billNumber) + 1).toString();
       } else {
         const count = await Bill.countDocuments();
-        finalBillNo = (1001 + count).toString();
+        finalBillNo = (count + 1).toString();
       }
     }
 
