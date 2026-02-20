@@ -31,7 +31,7 @@ export const getLedgerByParty = async (req: Request, res: Response) => {
 // POST /ledger → Add new ledger entry
 export const addLedgerEntry = async (req: Request, res: Response) => {
   try {
-    const { partyId, date, particulars, billNo, katte, weight, rate, debit, credit } = req.body;
+    const { partyId, billId, date, particulars, billNo, katte, weight, rate, debit, credit } = req.body;
 
     if (!partyId || (!debit && !credit)) {
       return res.status(400).json({ message: "partyId and debit/credit required" });
@@ -44,6 +44,7 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
 
     const entry = new LedgerEntry({
       partyId,
+      billId,
       date,
       particulars,
       billNo,
@@ -56,6 +57,25 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
     });
 
     await entry.save();
+
+    // Update Bill Status if billId is provided
+    if (billId) {
+      const Bill = require("../models/Bill").default; // Late import to avoid circular dependency if any
+      const bill = await Bill.findById(billId);
+      if (bill) {
+        // Payment is typically 'credit' in ledger for both Buyer and Miller in this app's logic 
+        // because credit decreases the balance.
+        const paymentAmount = credit || debit || 0; 
+        bill.paidAmount = (bill.paidAmount || 0) + paymentAmount;
+        
+        if (bill.paidAmount >= bill.totalAmount) {
+          bill.status = 'paid';
+        } else if (bill.paidAmount > 0) {
+          bill.status = 'partial';
+        }
+        await bill.save();
+      }
+    }
 
     res.status(201).json(entry);
   } catch (error) {
