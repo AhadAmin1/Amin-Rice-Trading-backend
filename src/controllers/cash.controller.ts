@@ -40,3 +40,57 @@ export const addCashEntry = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Error adding cash entry" });
   }
 };
+// PUT /cash/:id
+export const updateCashEntry = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { date, description, debit, credit } = req.body;
+
+    const entry = await CashEntry.findById(id);
+    if (!entry) return res.status(404).json({ message: "Cash entry not found" });
+
+    // Link block (optional, but good for consistency)
+    if (entry.billReference && entry.billReference.startsWith("BILL-")) {
+        // Maybe allow editing description only? 
+        // For now let's allow it but warn or restrict if needed.
+    }
+
+    entry.date = date;
+    entry.description = description;
+    entry.debit = debit || 0;
+    entry.credit = credit || 0;
+
+    await entry.save();
+    await recalculateCash();
+
+    res.json({ message: "Cash entry updated", entry });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating cash entry" });
+  }
+};
+
+// DELETE /cash/:id
+export const deleteCashEntry = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const entry = await CashEntry.findById(id);
+    if (!entry) return res.status(404).json({ message: "Cash entry not found" });
+
+    await entry.deleteOne();
+    await recalculateCash();
+
+    res.json({ message: "Cash entry deleted" });
+  } catch (error) {
+    res.status(500).json({ message: "Error deleting cash entry" });
+  }
+};
+
+export const recalculateCash = async () => {
+  const entries = await CashEntry.find().sort({ date: 1, createdAt: 1 });
+  let balance = 0;
+  for (const entry of entries) {
+    balance += (entry.debit || 0) - (entry.credit || 0);
+    entry.balance = balance;
+    await entry.save();
+  }
+};
