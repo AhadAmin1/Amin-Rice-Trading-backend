@@ -30,6 +30,7 @@ const StockSchema = new Schema({
   remainingKatte: { type: Number, required: true },
   remainingWeight: { type: Number, required: true },
   bhardana: { type: Number, default: 0 },
+  bhardanaRate: { type: Number, default: 0 },
 }, { timestamps: true });
 
 export default mongoose.models.Stock || mongoose.model<IStock>('Stock', StockSchema);

@@ -56,8 +56,13 @@ export const createBill = async (req: Request, res: Response) => {
     // 2️⃣ Generate Bill Number if not provided
     let finalBillNo = billNo;
     if (!finalBillNo) {
-      const count = await Bill.countDocuments();
-      finalBillNo = `BILL-${Date.now()}-${count + 1}`;
+      const lastBill = await Bill.findOne().sort({ createdAt: -1 });
+      if (lastBill && !isNaN(Number(lastBill.billNumber))) {
+        finalBillNo = (Number(lastBill.billNumber) + 1).toString();
+      } else {
+        const count = await Bill.countDocuments();
+        finalBillNo = (1001 + count).toString();
+      }
     }
 
     // 3️⃣ Create Bill Record

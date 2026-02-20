@@ -18,6 +18,7 @@ export interface IBill extends mongoose.Document {
   purchaseCost: number;
   profit: number;
   bhardana?: number;
+  bhardanaRate?: number;
 }
 
 const BillSchema = new mongoose.Schema<IBill>(
@@ -39,6 +40,7 @@ const BillSchema = new mongoose.Schema<IBill>(
     purchaseCost: Number,
     profit: Number,
     bhardana: { type: Number, default: 0 },
+    bhardanaRate: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
