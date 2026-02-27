@@ -14,6 +14,9 @@ export interface IStock extends Document {
   remainingKatte: number;
   remainingWeight: number;
   bhardana?: number;
+  receiptNumber: string;
+  paidAmount: number;
+  status: 'unpaid' | 'partial' | 'paid';
 }
 
 const StockSchema = new Schema({
@@ -31,6 +34,9 @@ const StockSchema = new Schema({
   remainingWeight: { type: Number, required: true },
   bhardana: { type: Number, default: 0 },
   bhardanaRate: { type: Number, default: 0 },
+  receiptNumber: { type: String, required: true, unique: true },
+  paidAmount: { type: Number, default: 0 },
+  status: { type: String, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid' },
 }, { timestamps: true });
 
 export default mongoose.models.Stock || mongoose.model<IStock>('Stock', StockSchema);

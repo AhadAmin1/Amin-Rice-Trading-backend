@@ -3,6 +3,7 @@ import mongoose, { Types } from 'mongoose';
 export interface ILedgerEntry extends mongoose.Document {
   partyId: Types.ObjectId;
   billId?: Types.ObjectId;
+  stockId?: Types.ObjectId;
   date: string;
   particulars: string;
   billNo?: string;
@@ -19,6 +20,7 @@ const LedgerEntrySchema = new mongoose.Schema<ILedgerEntry>(
   {
     partyId: { type: mongoose.Schema.Types.ObjectId, ref: 'Party', required: true },
     billId: { type: mongoose.Schema.Types.ObjectId, ref: 'Bill' },
+    stockId: { type: mongoose.Schema.Types.ObjectId, ref: 'Stock' },
     date: { type: String, required: true },
     particulars: { type: String, required: true },
     billNo: String,

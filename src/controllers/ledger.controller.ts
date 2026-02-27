@@ -1,6 +1,10 @@
 import { Request, Response } from "express";
 import LedgerEntry, { ILedgerEntry } from "../models/LedgerEntry";
 import Party from "../models/Party";
+import Bill from "../models/Bill";
+import Stock from "../models/Stock";
+import CashEntry from "../models/CashEntry";
+import Profit from "../models/Profit";
 
 // GET /ledger/:partyId  → Full ledger of a party with running balance
 export const getLedgerByParty = async (req: Request, res: Response) => {
@@ -28,16 +32,57 @@ export const getLedgerByParty = async (req: Request, res: Response) => {
   }
 };
 
+// Helper: Sync Bill Paid Amount from Ledger Entries (Idempotent)
+const syncBillPaidAmount = async (billId: string) => {
+  const bill = await Bill.findById(billId);
+  if (!bill) return;
+
+  const entries = await LedgerEntry.find({ billId });
+  // Sum ONLY credits (payments) for the bill
+  const actualPaid = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+  
+  bill.paidAmount = actualPaid;
+  const tolerance = 1;
+  if (bill.paidAmount >= bill.totalAmount - tolerance) {
+      bill.status = 'paid';
+  } else if (bill.paidAmount > 0) {
+      bill.status = 'partial';
+  } else {
+      bill.status = 'unpaid';
+  }
+  await bill.save();
+};
+
+// Helper: Sync Stock Paid Amount from Ledger Entries (Idempotent)
+const syncStockPaidAmount = async (stockId: string) => {
+  const stock = await Stock.findById(stockId);
+  if (!stock) return;
+
+  const entries = await LedgerEntry.find({ stockId });
+  const actualPaid = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
+  
+  stock.paidAmount = actualPaid;
+  const tolerance = 1;
+  if (stock.paidAmount >= stock.totalAmount - tolerance) {
+      stock.status = 'paid';
+  } else if (stock.paidAmount > 0) {
+      stock.status = 'partial';
+  } else {
+      stock.status = 'unpaid';
+  }
+  await stock.save();
+};
+
 // POST /ledger → Add new ledger entry
 export const addLedgerEntry = async (req: Request, res: Response) => {
   try {
-    const { partyId, billId, date, particulars, billNo, katte, weight, rate, debit, credit } = req.body;
+    const { partyId, billId, stockId, date, particulars, billNo, katte, weight, rate, debit, credit } = req.body;
 
     if (!partyId || (!debit && !credit)) {
       return res.status(400).json({ message: "partyId and debit/credit required" });
     }
 
-    const lastEntry = await LedgerEntry.findOne({ partyId }).sort({ date: -1 });
+    const lastEntry = await LedgerEntry.findOne({ partyId }).sort({ date: -1, createdAt: -1 });
     const lastBalance = lastEntry ? lastEntry.balance : 0;
 
     const newBalance = lastBalance + (debit || 0) - (credit || 0);
@@ -45,6 +90,7 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
     const entry = new LedgerEntry({
       partyId,
       billId,
+      stockId,
       date,
       particulars,
       billNo,
@@ -58,38 +104,18 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
 
     await entry.save();
 
-    // Update Bill Status if billId is provided
-    if (billId) {
-      const Bill = require("../models/Bill").default; // Late import to avoid circular dependency if any
-      const bill = await Bill.findById(billId);
-      if (bill) {
-        // Payment is typically 'credit' in ledger for both Buyer and Miller in this app's logic 
-        // because credit decreases the balance.
-        const paymentAmount = credit || debit || 0; 
-        bill.paidAmount = (bill.paidAmount || 0) + paymentAmount;
-        
-        if (bill.paidAmount >= bill.totalAmount) {
-          bill.status = 'paid';
-        } else if (bill.paidAmount > 0) {
-          bill.status = 'partial';
-        }
-        await bill.save();
-      }
-    }
+    // Re-Sync linked Bill or Stock (Idempotent)
+    if (billId) await syncBillPaidAmount(billId);
+    if (stockId) await syncStockPaidAmount(stockId);
 
     res.status(201).json(entry);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Error adding ledger entry" });
   }
-
 };
 
 // GET /ledger/summary
-import Stock from "../models/Stock";
-import CashEntry from "../models/CashEntry";
-import Profit from "../models/Profit";
-
 export const getDashboardStats = async (req: Request, res: Response) => {
   console.log("🔍 Controller: getDashboardStats started");
   try {
@@ -203,9 +229,12 @@ export const updateLedgerEntry = async (req: Request, res: Response) => {
     entry.date = date;
     entry.particulars = particulars;
 
+    await entry.save();
     await recalculateLedger(entry.partyId.toString());
 
-    await entry.save();
+    // Re-Sync linked entities
+    if (entry.billId) await syncBillPaidAmount(entry.billId.toString());
+    if (entry.stockId) await syncStockPaidAmount(entry.stockId.toString());
 
     res.json({ message: "Ledger entry updated" });
   } catch {
@@ -218,16 +247,15 @@ export const deleteLedgerEntry = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
 
-    const entry = await LedgerEntry.findById(id);
-    if (!entry) return res.status(404).json({ message: "Ledger entry not found" });
-
-    // ❌ Bill-linked entry block
-    if (entry.billId) {
-      return res.status(400).json({ message: "Bill ledger cannot be deleted" });
-    }
-await recalculateLedger(entry.partyId.toString());
+    const billId = entry.billId;
+    const stockId = entry.stockId;
 
     await entry.deleteOne();
+    await recalculateLedger(entry.partyId.toString());
+
+    // Re-Sync linked entities
+    if (billId) await syncBillPaidAmount(billId.toString());
+    if (stockId) await syncStockPaidAmount(stockId.toString());
 
     res.json({ message: "Ledger entry deleted" });
   } catch (error) {
@@ -236,8 +264,30 @@ await recalculateLedger(entry.partyId.toString());
   }
 };
 
+// POST /ledger/sync-all
+export const syncAllPayments = async (req: Request, res: Response) => {
+    try {
+        const bills = await Bill.find();
+        for (const b of bills) {
+            await syncBillPaidAmount(b._id.toString());
+        }
+        
+        const stocks = await Stock.find();
+        for (const s of stocks) {
+            await syncStockPaidAmount(s._id.toString());
+        }
+        
+        res.json({ message: "Successfully synced all bill and stock payments" });
+    } catch (err) {
+      console.error("Sync Error:", err);
+        res.status(500).json({ message: "Sync failed" });
+    }
+};
+
+// Note: recalculateLedger only updates running balances. 
+// It does NOT re-trigger bill.paidAmount updates to avoid loops or accidental double-counting.
 export const recalculateLedger = async (partyId: string) => {
-  const entries = await LedgerEntry.find({ partyId }).sort({ date: 1 });
+  const entries = await LedgerEntry.find({ partyId }).sort({ date: 1, createdAt: 1 });
 
   let balance = 0;
 

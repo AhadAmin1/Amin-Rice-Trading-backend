@@ -5,11 +5,13 @@ import {
   getDashboardStats, 
   deleteLedgerEntry, 
   updateLedgerEntry, 
-  getPartyBalances 
+  getPartyBalances,
+  syncAllPayments
 } from "../controllers/ledger.controller";
 
 const router = express.Router();
 
+router.post("/sync-all", syncAllPayments);
 router.get("/summary", getDashboardStats);
 router.get("/balances", getPartyBalances);
 

@@ -25,8 +25,28 @@ export const addStock = async (req: Request, res: Response) => {
       weightPerKatta,
       purchaseRate,
       rateType,
-      bhardana
+      bhardana,
+      receiptNumber: manualReceiptNumber
     } = req.body;
+
+    // Generate receipt number if not provided
+    let finalReceiptNumber = manualReceiptNumber;
+    if (!finalReceiptNumber) {
+      const lastStock = await Stock.findOne({ receiptNumber: { $regex: /^RCP-/ } }).sort({ createdAt: -1 });
+      if (lastStock && lastStock.receiptNumber) {
+        const match = lastStock.receiptNumber.match(/\d+$/);
+        if (match) {
+          const nextNum = parseInt(match[0], 10) + 1;
+          finalReceiptNumber = `RCP-${nextNum.toString().padStart(4, '0')}`;
+        } else {
+          finalReceiptNumber = "RCP-0001";
+        }
+      } else {
+        const count = await Stock.countDocuments();
+        finalReceiptNumber = `RCP-${(count + 1).toString().padStart(4, '0')}`;
+      }
+    }
+
 
     const totalWeight = katte * weightPerKatta;
     const totalAmount =
@@ -68,7 +88,10 @@ export const addStock = async (req: Request, res: Response) => {
       totalAmount: finalTotalAmount,
       remainingKatte: katte,
       remainingWeight: totalWeight,
-      bhardana: bhardana || 0
+      bhardana: bhardana || 0,
+      receiptNumber: finalReceiptNumber,
+      paidAmount: 0,
+      status: 'unpaid'
     });
     await stock.save();
 
@@ -81,7 +104,7 @@ export const addStock = async (req: Request, res: Response) => {
     const ledgerEntry = new LedgerEntry({
       partyId: millerId,
       date,
-      particulars: `Purchase: ${itemName}`,
+      particulars: `Purchase: ${itemName} (${finalReceiptNumber})`,
       katte,
       weight: totalWeight,
       rate: purchaseRate,

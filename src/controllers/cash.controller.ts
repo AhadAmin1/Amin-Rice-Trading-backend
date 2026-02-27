@@ -35,22 +35,6 @@ export const addCashEntry = async (req: Request, res: Response) => {
 
     await entry.save();
 
-    // Update Bill Status if billId is provided
-    if (billId) {
-      const Bill = require("../models/Bill").default;
-      const bill = await Bill.findById(billId);
-      if (bill) {
-        const paymentAmount = debit || credit || 0;
-        bill.paidAmount = (bill.paidAmount || 0) + paymentAmount;
-        
-        if (bill.paidAmount >= bill.totalAmount) {
-          bill.status = 'paid';
-        } else if (bill.paidAmount > 0) {
-          bill.status = 'partial';
-        }
-        await bill.save();
-      }
-    }
     res.status(201).json(entry);
   } catch (error) {
     console.error(error);
