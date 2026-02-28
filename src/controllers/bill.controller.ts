@@ -37,7 +37,10 @@ export const createBill = async (req: Request, res: Response) => {
       purchaseCost,
       profit,
       rateType,
-      bhardana
+      bhardana,
+      paymentType,
+      dueDays,
+      dueDate
     } = req.body;
 
     // 1️⃣ Validate Stock
@@ -83,7 +86,10 @@ export const createBill = async (req: Request, res: Response) => {
       purchaseCost,
       profit,
       rateType,
-      bhardana: bhardana || 0
+      bhardana: bhardana || 0,
+      paymentType: paymentType || 'cash',
+      dueDays: dueDays || undefined,
+      dueDate: dueDate || undefined
     });
     await bill.save();
 
@@ -237,6 +243,9 @@ export const updateBill = async (req: Request, res: Response) => {
     bill.rateType = rateType;
     bill.totalAmount = totalAmount;
     bill.billNumber = billNo; 
+    bill.paymentType = req.body.paymentType || bill.paymentType;
+    bill.dueDays = req.body.dueDays || bill.dueDays;
+    bill.dueDate = req.body.dueDate || bill.dueDate;
 
     await bill.save();
 
@@ -244,17 +253,37 @@ export const updateBill = async (req: Request, res: Response) => {
     const buyerLedger = await LedgerEntry.findOne({ billId: bill._id, partyId: buyerId });
     if (buyerLedger) {
         buyerLedger.date = date;
-        buyerLedger.debit = totalAmount; // Update debit for sales
+        buyerLedger.debit = totalAmount;
         buyerLedger.credit = 0;
         buyerLedger.katte = katte;
         buyerLedger.weight = weight;
         buyerLedger.rate = rate;
+        buyerLedger.billNo = billNo;
         buyerLedger.bhardana = req.body.bhardana || 0;
         await buyerLedger.save();
     }
     await recalculateLedger(buyerId);
 
-    // If implementing miller ledger update, can add here. But typically only buyer ledger for sales.
+    // 3️⃣ Update Cash Entry
+    const { recalculateCash } = require("./cash.controller");
+    const cashEntry = await CashEntry.findOne({ billReference: bill.billNumber });
+    if (cashEntry) {
+        cashEntry.date = date;
+        cashEntry.debit = totalAmount;
+        cashEntry.description = `Sale to ${bill.buyerName} - ${bill.itemName}`;
+        await cashEntry.save();
+        await recalculateCash();
+    }
+
+    // 4️⃣ Update Profit Entry
+    const profitEntry = await Profit.findOne({ billId: bill._id });
+    if (profitEntry) {
+        profitEntry.date = date;
+        profitEntry.sellingAmount = totalAmount;
+        profitEntry.purchaseCost = req.body.purchaseCost || profitEntry.purchaseCost;
+        profitEntry.profit = req.body.profit || (totalAmount - profitEntry.purchaseCost);
+        await profitEntry.save();
+    }
 
     res.json(bill);
   } catch (error) {

@@ -1,3 +1,4 @@
+import mongoose, { Types } from "mongoose";
 import { Request, Response } from "express";
 import LedgerEntry, { ILedgerEntry } from "../models/LedgerEntry";
 import Party from "../models/Party";
@@ -32,11 +33,12 @@ export const getLedgerByParty = async (req: Request, res: Response) => {
   }
 };
 
-// Helper: Sync Bill Paid Amount from Ledger Entries (Idempotent)
-const syncBillPaidAmount = async (billId: string) => {
+// Helper: Sync Bill Paid Amount from Ledger Entries
+export const syncBillPaidAmount = async (billId: string) => {
   const bill = await Bill.findById(billId);
   if (!bill) return;
 
+  // Find all ledger entries that are explicitly linked to this bill
   const entries = await LedgerEntry.find({ billId });
   // Sum ONLY credits (payments) for the bill
   const actualPaid = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
@@ -53,16 +55,16 @@ const syncBillPaidAmount = async (billId: string) => {
   await bill.save();
 };
 
-// Helper: Sync Stock Paid Amount from Ledger Entries (Idempotent)
-const syncStockPaidAmount = async (stockId: string) => {
+// Helper: Sync Stock Paid Amount from Ledger Entries
+export const syncStockPaidAmount = async (stockId: string) => {
   const stock = await Stock.findById(stockId);
   if (!stock) return;
 
-  const entries = await LedgerEntry.find({ stockId });
+  const entries = await LedgerEntry.find({ stockId: new Types.ObjectId(stockId) });
   const actualPaid = entries.reduce((sum, e) => sum + (e.credit || 0), 0);
   
   stock.paidAmount = actualPaid;
-  const tolerance = 1;
+  const tolerance = 0.5; // Tighter tolerance for accuracy
   if (stock.paidAmount >= stock.totalAmount - tolerance) {
       stock.status = 'paid';
   } else if (stock.paidAmount > 0) {
@@ -70,13 +72,16 @@ const syncStockPaidAmount = async (stockId: string) => {
   } else {
       stock.status = 'unpaid';
   }
+  
   await stock.save();
+  console.log(`[SYNC_STOCK] ${stock.receiptNumber} | Paid: ${actualPaid}/${stock.totalAmount} | Status: ${stock.status}`);
 };
 
 // POST /ledger → Add new ledger entry
 export const addLedgerEntry = async (req: Request, res: Response) => {
   try {
     const { partyId, billId, stockId, date, particulars, billNo, katte, weight, rate, debit, credit } = req.body;
+    console.log(`[ADD_LEDGER] Party: ${partyId} | StockId: ${stockId} | Credit: ${credit}`);
 
     if (!partyId || (!debit && !credit)) {
       return res.status(400).json({ message: "partyId and debit/credit required" });
@@ -87,13 +92,46 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
 
     const newBalance = lastBalance + (debit || 0) - (credit || 0);
 
+    let finalBillId = billId;
+    let finalStockId = stockId;
+
+    // If billId or stockId is provided but billNo is missing, try to fetch it
+    let finalBillNo = billNo;
+    if (!finalBillNo) {
+      if (finalBillId) {
+        const bill = await Bill.findById(finalBillId);
+        if (bill) finalBillNo = bill.billNumber;
+      } else if (finalStockId) {
+        const stock = await Stock.findById(finalStockId);
+        if (stock) finalBillNo = stock.receiptNumber;
+      }
+    }
+    
+    // Auto-Link fallback: If stockId is missing, try to find it from particulars (e.g., "for Receipt #S-101" or "S101")
+    if (!finalStockId && particulars) {
+        const match = particulars.match(/#?(S-?\d+)/i);
+        if (match) {
+            let rcp = match[1].toUpperCase();
+            if (!rcp.startsWith('S-')) rcp = `S-${rcp.substring(1)}`; // Handle S101 -> S-101 if needed, or just ensure S- prefix
+            // Actually simpler:
+            const cleanRcp = rcp.includes('-') ? rcp : `S-${rcp.replace('S', '')}`;
+            
+            const linkedStock = await Stock.findOne({ receiptNumber: { $regex: new RegExp(`^${cleanRcp}$`, 'i') } });
+            if (linkedStock) {
+                finalStockId = linkedStock._id;
+                if (!finalBillNo) finalBillNo = linkedStock.receiptNumber;
+                console.log(`[AUTO_LINK] Linked "${particulars}" to Stock ${cleanRcp}`);
+            }
+        }
+    }
+
     const entry = new LedgerEntry({
       partyId,
-      billId,
-      stockId,
+      billId: finalBillId,
+      stockId: finalStockId,
       date,
       particulars,
-      billNo,
+      billNo: finalBillNo,
       katte,
       weight,
       rate,
@@ -104,14 +142,14 @@ export const addLedgerEntry = async (req: Request, res: Response) => {
 
     await entry.save();
 
-    // Re-Sync linked Bill or Stock (Idempotent)
-    if (billId) await syncBillPaidAmount(billId);
-    if (stockId) await syncStockPaidAmount(stockId);
+    // Re-Sync linked Bill or Stock
+    if (finalBillId) await syncBillPaidAmount(finalBillId);
+    if (finalStockId) await syncStockPaidAmount(finalStockId);
 
     res.status(201).json(entry);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error adding ledger entry" });
+  } catch (error: any) {
+    console.error("Ledger Entry Error:", error);
+    res.status(500).json({ message: "Error adding ledger entry", error: error.message, stack: error.stack });
   }
 };
 
@@ -246,12 +284,15 @@ export const updateLedgerEntry = async (req: Request, res: Response) => {
 export const deleteLedgerEntry = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
+    const entry = await LedgerEntry.findById(id);
+    if (!entry) return res.status(404).json({ message: "Ledger entry not found" });
 
+    const partyIdToSync = entry.partyId.toString();
     const billId = entry.billId;
     const stockId = entry.stockId;
 
     await entry.deleteOne();
-    await recalculateLedger(entry.partyId.toString());
+    await recalculateLedger(partyIdToSync);
 
     // Re-Sync linked entities
     if (billId) await syncBillPaidAmount(billId.toString());
@@ -276,11 +317,10 @@ export const syncAllPayments = async (req: Request, res: Response) => {
         for (const s of stocks) {
             await syncStockPaidAmount(s._id.toString());
         }
-        
-        res.json({ message: "Successfully synced all bill and stock payments" });
-    } catch (err) {
+        res.json({ message: "Successfully synced all party payments" });
+    } catch (err: any) {
       console.error("Sync Error:", err);
-        res.status(500).json({ message: "Sync failed" });
+      res.status(500).json({ message: "Sync failed", error: err.message, stack: err.stack });
     }
 };
 

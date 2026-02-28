@@ -17,6 +17,9 @@ export interface IStock extends Document {
   receiptNumber: string;
   paidAmount: number;
   status: 'unpaid' | 'partial' | 'paid';
+  paymentType?: 'cash' | 'credit';
+  dueDays?: number;
+  dueDate?: string;
 }
 
 const StockSchema = new Schema({
@@ -37,6 +40,9 @@ const StockSchema = new Schema({
   receiptNumber: { type: String, required: true, unique: true },
   paidAmount: { type: Number, default: 0 },
   status: { type: String, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid' },
+  paymentType: { type: String, enum: ['cash', 'credit'], default: 'cash' },
+  dueDays: { type: Number },
+  dueDate: { type: String },
 }, { timestamps: true });
 
 export default mongoose.models.Stock || mongoose.model<IStock>('Stock', StockSchema);

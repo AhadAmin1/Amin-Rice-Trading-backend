@@ -1,5 +1,9 @@
 import { Request, Response } from "express";
 import CashEntry from "../models/CashEntry";
+import LedgerEntry from "../models/LedgerEntry";
+import Stock from "../models/Stock";
+import Bill from "../models/Bill";
+import { syncBillPaidAmount, syncStockPaidAmount } from "./ledger.controller";
 
 // GET /cash
 export const getCashEntries = async (req: Request, res: Response) => {
@@ -35,6 +39,62 @@ export const addCashEntry = async (req: Request, res: Response) => {
 
     await entry.save();
 
+    // --- Smart Linking Logic ---
+    // Extract Receipt (S-XXX) or Bill (B-XXX) from description
+    const stockMatch = description.match(/#?(S-\d+)/i);
+    const billMatch = description.match(/#?(B-\d+)/i);
+
+    if (stockMatch) {
+        const receiptNo = stockMatch[1].toUpperCase().startsWith('S-') ? stockMatch[1].toUpperCase() : `S-${stockMatch[1]}`;
+        const stock = await Stock.findOne({ receiptNumber: { $regex: new RegExp(`^${receiptNo}$`, 'i') } });
+        if (stock) {
+            console.log(`[CASH_SMART_LINK] Linking to Stock ${receiptNo}`);
+            
+            // Create corresponding Ledger Entry for the Miller
+            const lastLedger = await LedgerEntry.findOne({ partyId: stock.millerId }).sort({ date: -1, createdAt: -1 });
+            const lastBalance = lastLedger ? lastLedger.balance : 0;
+            // For Millers: Payment (Cash Out/Credit) is Debit in Ledger (decreases liability)
+            // But this app uses Credit for Payments and Debit for Purchases?
+            // Let's use the same logic as DirectPaymentDialog: credit: amount
+            
+            await LedgerEntry.create({
+                partyId: stock.millerId,
+                stockId: stock._id,
+                date,
+                particulars: `Cash Book: ${description}`,
+                billNo: receiptNo,
+                debit: 0,
+                credit: credit || 0,
+                balance: lastBalance - (credit || 0)
+            });
+            
+            await syncStockPaidAmount(stock._id.toString());
+            const { notifyUpdate } = require("./ledger.controller"); 
+            // Trigger UI update if possible or rely on frontend event
+        }
+    } else if (billMatch) {
+        const billNo = billMatch[1].toUpperCase().startsWith('B-') ? billMatch[1].toUpperCase() : `B-${billMatch[1]}`;
+        const bill = await Bill.findOne({ billNumber: { $regex: new RegExp(`^${billNo}$`, 'i') } });
+        if (bill) {
+             console.log(`[CASH_SMART_LINK] Linking to Bill ${billNo}`);
+             const lastLedger = await LedgerEntry.findOne({ partyId: bill.buyerId }).sort({ date: -1, createdAt: -1 });
+             const lastBalance = lastLedger ? lastLedger.balance : 0;
+             
+             await LedgerEntry.create({
+                partyId: bill.buyerId,
+                billId: bill._id,
+                date,
+                particulars: `Cash Book: ${description}`,
+                billNo: billNo,
+                debit: 0,
+                credit: debit || 0, // Debit (Cash In) to us is Credit (decreases their debt) in Ledger
+                balance: lastBalance - (debit || 0)
+            });
+            
+            await syncBillPaidAmount(bill._id.toString());
+        }
+    }
+
     res.status(201).json(entry);
   } catch (error) {
     console.error(error);
@@ -50,11 +110,8 @@ export const updateCashEntry = async (req: Request, res: Response) => {
     const entry = await CashEntry.findById(id);
     if (!entry) return res.status(404).json({ message: "Cash entry not found" });
 
-    // Link block (optional, but good for consistency)
-    if (entry.billReference && entry.billReference.startsWith("BILL-")) {
-        // Maybe allow editing description only? 
-        // For now let's allow it but warn or restrict if needed.
-    }
+    const oldDescription = entry.description;
+    const oldDate = entry.date;
 
     entry.date = date;
     entry.description = description;
@@ -63,6 +120,36 @@ export const updateCashEntry = async (req: Request, res: Response) => {
 
     await entry.save();
     await recalculateCash();
+
+    // Sync with Ledger
+    const ledgerEntry = await LedgerEntry.findOne({ 
+        particulars: `Cash Book: ${oldDescription}`,
+        date: oldDate
+    });
+
+    if (ledgerEntry) {
+        ledgerEntry.date = date;
+        ledgerEntry.particulars = `Cash Book: ${description}`;
+        // Logic for debit/credit depends on if it was Miller or Buyer.
+        // If it was Miller: credit (payment) decreases liability.
+        // If it was Buyer: debit (receive) decreases their debt.
+        // The original logic in addCashEntry was:
+        // Stock/Miller: ledger.credit = cash.credit
+        // Bill/Buyer: ledger.credit = cash.debit
+        
+        if (ledgerEntry.stockId) {
+            ledgerEntry.credit = credit || 0;
+            // Balance will be recalculated below
+        } else if (ledgerEntry.billId) {
+            ledgerEntry.credit = debit || 0; 
+        }
+
+        await ledgerEntry.save();
+        const { recalculateLedger, syncBillPaidAmount, syncStockPaidAmount } = require("./ledger.controller");
+        await recalculateLedger(ledgerEntry.partyId.toString());
+        if (ledgerEntry.billId) await syncBillPaidAmount(ledgerEntry.billId.toString());
+        if (ledgerEntry.stockId) await syncStockPaidAmount(ledgerEntry.stockId.toString());
+    }
 
     res.json({ message: "Cash entry updated", entry });
   } catch (error) {
@@ -76,6 +163,25 @@ export const deleteCashEntry = async (req: Request, res: Response) => {
     const { id } = req.params;
     const entry = await CashEntry.findById(id);
     if (!entry) return res.status(404).json({ message: "Cash entry not found" });
+
+    // Find and delete linked ledger entry
+    const ledgerEntry = await LedgerEntry.findOne({ 
+        particulars: `Cash Book: ${entry.description}`,
+        date: entry.date
+    });
+
+    if (ledgerEntry) {
+        const partyId = ledgerEntry.partyId;
+        const billId = ledgerEntry.billId;
+        const stockId = ledgerEntry.stockId;
+        
+        await ledgerEntry.deleteOne();
+        
+        const { recalculateLedger, syncBillPaidAmount, syncStockPaidAmount } = require("./ledger.controller");
+        await recalculateLedger(partyId.toString());
+        if (billId) await syncBillPaidAmount(billId.toString());
+        if (stockId) await syncStockPaidAmount(stockId.toString());
+    }
 
     await entry.deleteOne();
     await recalculateCash();

@@ -7,7 +7,18 @@ import Party from "../models/Party";
 export const getStock = async (req: Request, res: Response) => {
   try {
     const stocks = await Stock.find().sort({ createdAt: -1 });
-    res.json(stocks);
+    
+    // Add fallback for missing receipt numbers for existing data
+    const mappedStocks = stocks.map((s, index) => {
+      const stock = s.toObject();
+      if (!stock.receiptNumber) {
+        // Use a virtual S- series number based on position/count if missing
+        stock.receiptNumber = `S-${101 + (stocks.length - 1 - index)}`; 
+      }
+      return stock;
+    });
+
+    res.json(mappedStocks);
   } catch (error) {
     res.status(500).json({ message: "Error fetching stock" });
   }
@@ -25,54 +36,38 @@ export const addStock = async (req: Request, res: Response) => {
       weightPerKatta,
       purchaseRate,
       rateType,
+      bhardanaRate, // Added
       bhardana,
-      receiptNumber: manualReceiptNumber
+      receiptNumber: manualReceiptNumber,
+      paymentType,
+      dueDays,
+      dueDate
     } = req.body;
 
     // Generate receipt number if not provided
     let finalReceiptNumber = manualReceiptNumber;
     if (!finalReceiptNumber) {
-      const lastStock = await Stock.findOne({ receiptNumber: { $regex: /^RCP-/ } }).sort({ createdAt: -1 });
+      const lastStock = await Stock.findOne({ receiptNumber: { $regex: /^S-/ } }).sort({ createdAt: -1 });
       if (lastStock && lastStock.receiptNumber) {
         const match = lastStock.receiptNumber.match(/\d+$/);
         if (match) {
           const nextNum = parseInt(match[0], 10) + 1;
-          finalReceiptNumber = `RCP-${nextNum.toString().padStart(4, '0')}`;
+          finalReceiptNumber = `S-${nextNum}`;
         } else {
-          finalReceiptNumber = "RCP-0001";
+          finalReceiptNumber = "S-101";
         }
       } else {
         const count = await Stock.countDocuments();
-        finalReceiptNumber = `RCP-${(count + 1).toString().padStart(4, '0')}`;
+        finalReceiptNumber = `S-${101 + count}`;
       }
     }
 
 
     const totalWeight = katte * weightPerKatta;
-    const totalAmount =
-      rateType === "per_kg"
+    const rawAmount = rateType === "per_kg"
         ? totalWeight * purchaseRate
         : katte * purchaseRate;
-
-    // Total Amount should include Bhardana? 
-    // User said: "miller ke khate me plus hoga". 
-    // Usually Stock "Total Amount" is (Quantity * Rate) + Expense.
-    // I will assume implicit addition for now, or assume the frontend passes the FINAL totalAmount?
-    // Wait, the controller calculates totalAmount:
-    // const totalAmount = ...
-    // If I add bhardana, I should probably add it to totalAmount or keep it separate but add to ledger?
-    // "bhardana alag bhi dikhe ga aur total me plus hokr total bhi dikhega"
-    // So totalAmount SHOULD include bhardana.
-    
-    // BUT, the current code calculates totalAmount based on rate.
-    // I should add bhardana to totalAmount here?
-    // OR should I respect the 'totalAmount' if passed from frontend?
-    // The current code ignores frontend 'totalAmount' and recalculates it.
-    
-    // Let's modify the calculation to include bhardana.
-    const finalTotalAmount = (rateType === "per_kg"
-        ? totalWeight * purchaseRate
-        : katte * purchaseRate) + (Number(bhardana) || 0);
+    const finalTotalAmount = rawAmount + (Number(bhardana) || 0);
 
     // 1. Create Stock
     const stock = new Stock({
@@ -89,9 +84,13 @@ export const addStock = async (req: Request, res: Response) => {
       remainingKatte: katte,
       remainingWeight: totalWeight,
       bhardana: bhardana || 0,
+      bhardanaRate: bhardanaRate || 0,
       receiptNumber: finalReceiptNumber,
       paidAmount: 0,
-      status: 'unpaid'
+      status: 'unpaid',
+      paymentType: paymentType || 'cash',
+      dueDays: dueDays || undefined,
+      dueDate: dueDate || undefined
     });
     await stock.save();
 
@@ -103,6 +102,7 @@ export const addStock = async (req: Request, res: Response) => {
 
     const ledgerEntry = new LedgerEntry({
       partyId: millerId,
+      stockId: stock._id,
       date,
       particulars: `Purchase: ${itemName} (${finalReceiptNumber})`,
       katte,
@@ -128,18 +128,55 @@ export const updateStock = async (req: Request, res: Response) => {
     const { id } = req.params;
     const updateData = req.body;
     
-    // Recalculate totals if necessary
-    if (updateData.katte && updateData.weightPerKatta) {
-       updateData.totalWeight = updateData.katte * updateData.weightPerKatta;
-    }
-    
-    // Note: This logic assumes we aren't changing the "Amount" in a way that needs Ledger update
-    // validating complex ledger sync is hard without transactions. 
-    // For now assuming simple update of stock fields.
+    const existingStock = await Stock.findById(id);
+    if (!existingStock) return res.status(404).json({ message: "Stock not found" });
 
-    const stock = await Stock.findByIdAndUpdate(id, updateData, { new: true });
-    res.json(stock);
+    // 1. Recalculate Totals
+    const katte = Number(updateData.katte ?? existingStock.katte);
+    const weightPerKatta = Number(updateData.weightPerKatta ?? existingStock.weightPerKatta);
+    const purchaseRate = Number(updateData.purchaseRate ?? existingStock.purchaseRate);
+    const bhardanaRate = Number(updateData.bhardanaRate ?? existingStock.bhardanaRate);
+    const rateType = updateData.rateType ?? existingStock.rateType;
+    const bhardana = katte * bhardanaRate;
+
+    const totalWeight = katte * weightPerKatta;
+    const rawAmount = rateType === "per_kg"
+        ? totalWeight * purchaseRate
+        : katte * purchaseRate;
+    const totalAmount = rawAmount + bhardana;
+
+    // Update the record
+    const updatedStock = await Stock.findByIdAndUpdate(id, {
+        ...updateData,
+        totalWeight,
+        totalAmount,
+        bhardana,
+        remainingKatte: updateData.remainingKatte ?? (katte - (existingStock.katte - existingStock.remainingKatte)),
+        remainingWeight: updateData.remainingWeight ?? (totalWeight - (existingStock.totalWeight - existingStock.remainingWeight)),
+    }, { new: true });
+
+    if (!updatedStock) return res.status(404).json({ message: "Update failed" });
+
+    // 2. Sync Ledger Purchase Entry
+    const ledgerEntry = await LedgerEntry.findOne({ stockId: id, credit: 0 }); 
+    if (ledgerEntry) {
+        ledgerEntry.date = updatedStock.date;
+        ledgerEntry.particulars = `Purchase: ${updatedStock.itemName} (${updatedStock.receiptNumber})`;
+        ledgerEntry.katte = updatedStock.katte;
+        ledgerEntry.weight = updatedStock.totalWeight;
+        ledgerEntry.rate = updatedStock.purchaseRate;
+        ledgerEntry.bhardana = updatedStock.bhardana;
+        ledgerEntry.debit = updatedStock.totalAmount;
+        await ledgerEntry.save();
+        
+        const { recalculateLedger, syncStockPaidAmount } = require("./ledger.controller");
+        await recalculateLedger(updatedStock.millerId.toString());
+        await syncStockPaidAmount(id);
+    }
+
+    res.json(updatedStock);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Error updating stock" });
   }
 };
@@ -148,9 +185,27 @@ export const updateStock = async (req: Request, res: Response) => {
 export const deleteStock = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const stock = await Stock.findById(id);
+    if (!stock) return res.status(404).json({ message: "Stock not found" });
+
+    const millerId = stock.millerId;
+
+    // 1. Delete associated Ledger Entries (Purchase entry)
+    // Payments linked to this stock should also be handled? 
+    // Usually, we only delete the Purchase entry. Payments are separate.
+    // But if we delete the stock, we must un-link or delete the purchase ledger.
+    await LedgerEntry.deleteMany({ stockId: id, debit: { $gt: 0 } }); 
+    
+    // 2. Delete the stock itself
     await Stock.findByIdAndDelete(id);
-    res.json({ message: "Stock deleted" });
+
+    // 3. Recalculate miller's ledger
+    const { recalculateLedger } = require("./ledger.controller");
+    await recalculateLedger(millerId.toString());
+
+    res.json({ message: "Stock deleted and ledger updated" });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Error deleting stock" });
   }
 };
