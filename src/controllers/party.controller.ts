@@ -17,7 +17,7 @@ export const getParties = async (req: Request, res: Response) => {
 export const createParty = async (req: Request, res: Response) => {
   console.log("📝 Controller: createParty started", req.body);
   try {
-    const { name, type } = req.body;
+    const { name, type, phone, address } = req.body;
 
     if (!name || !type) {
       return res.status(400).json({
@@ -25,7 +25,7 @@ export const createParty = async (req: Request, res: Response) => {
       });
     }
 
-    const party = await Party.create({ name, type });
+    const party = await Party.create({ name, type, phone, address });
     console.log("✅ Controller: createParty success", party._id);
     res.status(201).json(party);
   } catch (error: any) {
