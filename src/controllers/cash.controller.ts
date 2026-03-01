@@ -26,7 +26,7 @@ export const addCashEntry = async (req: Request, res: Response) => {
     const lastEntry = await CashEntry.findOne().sort({ date: -1, createdAt: -1 });
     const previousBalance = lastEntry ? lastEntry.balance : 0;
     
-    const newBalance = previousBalance + (debit || 0) - (credit || 0);
+    const newBalance = previousBalance + (credit || 0) - (debit || 0);
 
     const entry = new CashEntry({
       date,
@@ -41,11 +41,14 @@ export const addCashEntry = async (req: Request, res: Response) => {
 
     // --- Smart Linking Logic ---
     // Extract Receipt (S-XXX) or Bill (B-XXX) from description
-    const stockMatch = description.match(/#?(S-\d+)/i);
-    const billMatch = description.match(/#?(B-\d+)/i);
+    const stockMatch = description.match(/#?(S-?\d+)/i);
+    const billMatch = description.match(/#?(B-?\d+)/i);
 
     if (stockMatch) {
-        const receiptNo = stockMatch[1].toUpperCase().startsWith('S-') ? stockMatch[1].toUpperCase() : `S-${stockMatch[1]}`;
+        let rawRcp = stockMatch[1].toUpperCase();
+        // Normalize S101 to S-101
+        const receiptNo = rawRcp.startsWith('S-') ? rawRcp : `S-${rawRcp.replace('S', '')}`;
+        
         const stock = await Stock.findOne({ receiptNumber: { $regex: new RegExp(`^${receiptNo}$`, 'i') } });
         if (stock) {
             console.log(`[CASH_SMART_LINK] Linking to Stock ${receiptNo}`);
@@ -64,8 +67,8 @@ export const addCashEntry = async (req: Request, res: Response) => {
                 particulars: `Cash Book: ${description}`,
                 billNo: receiptNo,
                 debit: 0,
-                credit: credit || 0,
-                balance: lastBalance - (credit || 0)
+                credit: debit || 0, // Debit (Cash Out) to Miller is Credit (decrease liability) in Ledger
+                balance: lastBalance - (debit || 0)
             });
             
             await syncStockPaidAmount(stock._id.toString());
@@ -87,8 +90,8 @@ export const addCashEntry = async (req: Request, res: Response) => {
                 particulars: `Cash Book: ${description}`,
                 billNo: billNo,
                 debit: 0,
-                credit: debit || 0, // Debit (Cash In) to us is Credit (decreases their debt) in Ledger
-                balance: lastBalance - (debit || 0)
+                credit: credit || 0, // Credit (Cash In) from Buyer is Credit (decreases debt) in Ledger
+                balance: lastBalance - (credit || 0)
             });
             
             await syncBillPaidAmount(bill._id.toString());
@@ -138,10 +141,9 @@ export const updateCashEntry = async (req: Request, res: Response) => {
         // Bill/Buyer: ledger.credit = cash.debit
         
         if (ledgerEntry.stockId) {
-            ledgerEntry.credit = credit || 0;
-            // Balance will be recalculated below
+            ledgerEntry.credit = debit || 0; // Money Out (debit) is Miller Credit
         } else if (ledgerEntry.billId) {
-            ledgerEntry.credit = debit || 0; 
+            ledgerEntry.credit = credit || 0; // Money In (credit) is Buyer Credit
         }
 
         await ledgerEntry.save();
@@ -196,7 +198,7 @@ export const recalculateCash = async () => {
   const entries = await CashEntry.find().sort({ date: 1, createdAt: 1 });
   let balance = 0;
   for (const entry of entries) {
-    balance += (entry.debit || 0) - (entry.credit || 0);
+    balance += (entry.credit || 0) - (entry.debit || 0);
     entry.balance = balance;
     await entry.save();
   }

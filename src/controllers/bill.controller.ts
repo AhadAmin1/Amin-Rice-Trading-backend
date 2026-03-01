@@ -17,6 +17,30 @@ const recalculateLedger = async (partyId: string) => {
   }
 };
 
+// Helper to get next bill number
+export const getNextBillId = async () => {
+  const lastBill = await Bill.findOne({ billNumber: { $regex: /^B-/ } }).sort({ createdAt: -1 });
+  if (lastBill && lastBill.billNumber) {
+    const match = lastBill.billNumber.match(/\d+$/);
+    if (match) {
+      const nextNum = parseInt(match[0], 10) + 1;
+      return `B-${nextNum}`;
+    }
+  }
+  const count = await Bill.countDocuments();
+  return `B-${101 + count}`;
+};
+
+// GET /bills/next-number
+export const getNextBillNumber = async (req: Request, res: Response) => {
+  try {
+    const nextNumber = await getNextBillId();
+    res.json({ nextNumber });
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching next bill number" });
+  }
+};
+
 // POST /bills
 export const createBill = async (req: Request, res: Response) => {
   console.log("📝 Controller: createBill started", req.body);
@@ -59,13 +83,7 @@ export const createBill = async (req: Request, res: Response) => {
     // 2️⃣ Generate Bill Number if not provided
     let finalBillNo = billNo;
     if (!finalBillNo) {
-      const lastBill = await Bill.findOne().sort({ createdAt: -1 });
-      if (lastBill && !isNaN(Number(lastBill.billNumber))) {
-        finalBillNo = (Number(lastBill.billNumber) + 1).toString();
-      } else {
-        const count = await Bill.countDocuments();
-        finalBillNo = (count + 1).toString();
-      }
+      finalBillNo = await getNextBillId();
     }
 
     // 3️⃣ Create Bill Record

@@ -33,6 +33,28 @@ export const getLedgerByParty = async (req: Request, res: Response) => {
   }
 };
 
+// GET /ledger/stock/:stockId
+export const getLedgerByStock = async (req: Request, res: Response) => {
+  try {
+    const { stockId } = req.params;
+    const ledger = await LedgerEntry.find({ stockId }).sort({ date: 1 });
+    res.json(ledger);
+  } catch (error: any) {
+    res.status(500).json({ message: "Error fetching stock ledger" });
+  }
+};
+
+// GET /ledger/bill/:billId
+export const getLedgerByBill = async (req: Request, res: Response) => {
+  try {
+    const { billId } = req.params;
+    const ledger = await LedgerEntry.find({ billId }).sort({ date: 1 });
+    res.json(ledger);
+  } catch (error: any) {
+    res.status(500).json({ message: "Error fetching bill ledger" });
+  }
+};
+
 // Helper: Sync Bill Paid Amount from Ledger Entries
 export const syncBillPaidAmount = async (billId: string) => {
   const bill = await Bill.findById(billId);
