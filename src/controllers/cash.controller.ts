@@ -40,9 +40,9 @@ export const addCashEntry = async (req: Request, res: Response) => {
     await entry.save();
 
     // --- Smart Linking Logic ---
-    // Extract Receipt (S-XXX) or Bill (B-XXX) from description
-    const stockMatch = description.match(/#?(S-?\d+)/i);
-    const billMatch = description.match(/#?(B-?\d+)/i);
+    // Only link if description explicitly contains #S-xxx or #B-xxx (# is required, NOT optional)
+    const stockMatch = description.match(/#(S-?\d+)/i);
+    const billMatch = description.match(/#(B-?\d+)/i);
 
     if (stockMatch) {
         let rawRcp = stockMatch[1].toUpperCase();

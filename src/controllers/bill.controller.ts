@@ -245,8 +245,11 @@ export const updateBill = async (req: Request, res: Response) => {
       rate, 
       totalAmount,
       rateType,
-      billNo 
+      billNo,
+      billNumber
     } = req.body;
+
+    const actualBillNumber = billNo || billNumber;
 
     const bill = await Bill.findById(id);
     if (!bill) return res.status(404).json({ message: "Bill not found" });
@@ -260,10 +263,23 @@ export const updateBill = async (req: Request, res: Response) => {
     bill.rate = rate;
     bill.rateType = rateType;
     bill.totalAmount = totalAmount;
-    bill.billNumber = billNo; 
+    
+    // Update string names
+    if (req.body.buyerName) bill.buyerName = req.body.buyerName;
+    if (req.body.millerName) bill.millerName = req.body.millerName;
+    if (req.body.itemName) bill.itemName = req.body.itemName;
+    if (req.body.stockId) bill.stockId = req.body.stockId;
+    
+    if (actualBillNumber) {
+        bill.billNumber = actualBillNumber; 
+        bill.billNo = actualBillNumber;
+    }
     bill.paymentType = req.body.paymentType || bill.paymentType;
     bill.dueDays = req.body.dueDays || bill.dueDays;
     bill.dueDate = req.body.dueDate || bill.dueDate;
+    if (req.body.purchaseCost !== undefined) bill.purchaseCost = req.body.purchaseCost;
+    if (req.body.profit !== undefined) bill.profit = req.body.profit;
+    if (req.body.bhardana !== undefined) bill.bhardana = req.body.bhardana;
 
     await bill.save();
 
@@ -276,7 +292,7 @@ export const updateBill = async (req: Request, res: Response) => {
         buyerLedger.katte = katte;
         buyerLedger.weight = weight;
         buyerLedger.rate = rate;
-        buyerLedger.billNo = billNo;
+        if (actualBillNumber) buyerLedger.billNo = actualBillNumber;
         buyerLedger.bhardana = req.body.bhardana || 0;
         await buyerLedger.save();
     }
@@ -303,9 +319,15 @@ export const updateBill = async (req: Request, res: Response) => {
         await profitEntry.save();
     }
 
-    res.json(bill);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error updating bill" });
+    // 5️⃣ Re-sync bill paid amount and status (in case totalAmount changed)
+    const { syncBillPaidAmount } = require("./ledger.controller");
+    await syncBillPaidAmount(bill._id.toString());
+
+    // Return the fresh version after status sync
+    const freshBill = await Bill.findById(bill._id);
+    res.json(freshBill);
+  } catch (error: any) {
+    console.error("❌ updateBill Error:", error);
+    res.status(500).json({ message: "Error updating bill", error: error.message });
   }
 };

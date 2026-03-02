@@ -145,14 +145,17 @@ export const updateStock = async (req: Request, res: Response) => {
         : katte * purchaseRate;
     const totalAmount = rawAmount + bhardana;
 
+    // Strip protected fields that should NEVER be overwritten by the frontend payload
+    const { status: _s, paidAmount: _p, _id: _id2, __v: _v, ...safeUpdateData } = updateData;
+
     // Update the record
     const updatedStock = await Stock.findByIdAndUpdate(id, {
-        ...updateData,
+        ...safeUpdateData,
         totalWeight,
         totalAmount,
         bhardana,
-        remainingKatte: updateData.remainingKatte ?? (katte - (existingStock.katte - existingStock.remainingKatte)),
-        remainingWeight: updateData.remainingWeight ?? (totalWeight - (existingStock.totalWeight - existingStock.remainingWeight)),
+        remainingKatte: (katte - (existingStock.katte - existingStock.remainingKatte)),
+        remainingWeight: (totalWeight - (existingStock.totalWeight - existingStock.remainingWeight)),
     }, { new: true });
 
     if (!updatedStock) return res.status(404).json({ message: "Update failed" });
@@ -172,12 +175,21 @@ export const updateStock = async (req: Request, res: Response) => {
         const { recalculateLedger, syncStockPaidAmount } = require("./ledger.controller");
         await recalculateLedger(updatedStock.millerId.toString());
         await syncStockPaidAmount(id);
+    } else {
+        // Even if no purchase ledger entry exists, re-sync status/paidAmount
+        const { syncStockPaidAmount } = require("./ledger.controller");
+        await syncStockPaidAmount(id);
     }
 
-    res.json(updatedStock);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error updating stock" });
+    // Return the freshest version (after syncStockPaidAmount may have updated status)
+    const freshStock = await Stock.findById(id);
+    res.json(freshStock);
+  } catch (error: any) {
+    console.error("❌ updateStock Error:", error);
+    if (error.errors) {
+       console.error("VALIDATION ERRORS:", error.errors);
+    }
+    res.status(500).json({ message: "Error updating stock", error: error.message });
   }
 };
 
