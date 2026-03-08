@@ -59,9 +59,11 @@ export const createBill = async (req: Request, res: Response) => {
       itemName,
       stockId,
       purchaseCost,
+      weightGainProfit,
       profit,
       rateType,
       bhardana,
+      minusWeight,
       paymentType,
       dueDays,
       dueDate
@@ -105,6 +107,7 @@ export const createBill = async (req: Request, res: Response) => {
       profit,
       rateType,
       bhardana: bhardana || 0,
+      minusWeight: minusWeight || 0,
       paymentType: paymentType || 'cash',
       dueDays: dueDays || undefined,
       dueDate: dueDate || undefined
@@ -158,6 +161,7 @@ export const createBill = async (req: Request, res: Response) => {
       totalWeight: weight,
       sellingAmount: totalAmount,
       purchaseCost,
+      weightGainProfit: weightGainProfit || 0,
       profit
     });
     await profitEntry.save();
@@ -254,6 +258,16 @@ export const updateBill = async (req: Request, res: Response) => {
     const bill = await Bill.findById(id);
     if (!bill) return res.status(404).json({ message: "Bill not found" });
 
+    // 1️⃣ Restore Old Stock Levels
+    if (bill.stockId) {
+        const oldStock = await Stock.findById(bill.stockId);
+        if (oldStock) {
+            oldStock.remainingKatte += bill.katte;
+            oldStock.remainingWeight += bill.weight;
+            await oldStock.save();
+        }
+    }
+
     // Simplistic Update
     bill.date = date;
     bill.buyerId = buyerId;
@@ -280,8 +294,19 @@ export const updateBill = async (req: Request, res: Response) => {
     if (req.body.purchaseCost !== undefined) bill.purchaseCost = req.body.purchaseCost;
     if (req.body.profit !== undefined) bill.profit = req.body.profit;
     if (req.body.bhardana !== undefined) bill.bhardana = req.body.bhardana;
+    if (req.body.minusWeight !== undefined) bill.minusWeight = req.body.minusWeight;
 
     await bill.save();
+
+    // 2️⃣ Deduct New Stock Levels
+    if (bill.stockId) {
+        const newStock = await Stock.findById(bill.stockId);
+        if (newStock) {
+            newStock.remainingKatte -= katte;
+            newStock.remainingWeight -= weight;
+            await newStock.save();
+        }
+    }
 
     // 2️⃣ Update ledger entries
     const buyerLedger = await LedgerEntry.findOne({ billId: bill._id, partyId: buyerId });
@@ -315,6 +340,7 @@ export const updateBill = async (req: Request, res: Response) => {
         profitEntry.date = date;
         profitEntry.sellingAmount = totalAmount;
         profitEntry.purchaseCost = req.body.purchaseCost || profitEntry.purchaseCost;
+        profitEntry.weightGainProfit = req.body.weightGainProfit !== undefined ? req.body.weightGainProfit : profitEntry.weightGainProfit;
         profitEntry.profit = req.body.profit || (totalAmount - profitEntry.purchaseCost);
         await profitEntry.save();
     }

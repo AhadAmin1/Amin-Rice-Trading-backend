@@ -38,6 +38,7 @@ export const addStock = async (req: Request, res: Response) => {
       rateType,
       bhardanaRate, // Added
       bhardana,
+      minusWeight, // Added
       receiptNumber: manualReceiptNumber,
       paymentType,
       dueDays,
@@ -63,7 +64,7 @@ export const addStock = async (req: Request, res: Response) => {
     }
 
 
-    const totalWeight = katte * weightPerKatta;
+    const totalWeight = req.body.totalWeight ? Number(req.body.totalWeight) : (katte * weightPerKatta) - (katte * (Number(minusWeight) || 0));
     const rawAmount = rateType === "per_kg"
         ? totalWeight * purchaseRate
         : katte * purchaseRate;
@@ -85,6 +86,7 @@ export const addStock = async (req: Request, res: Response) => {
       remainingWeight: totalWeight,
       bhardana: bhardana || 0,
       bhardanaRate: bhardanaRate || 0,
+      minusWeight: minusWeight || 0,
       receiptNumber: finalReceiptNumber,
       paidAmount: 0,
       status: 'unpaid',
@@ -139,7 +141,7 @@ export const updateStock = async (req: Request, res: Response) => {
     const rateType = updateData.rateType ?? existingStock.rateType;
     const bhardana = katte * bhardanaRate;
 
-    const totalWeight = katte * weightPerKatta;
+    const totalWeight = updateData.totalWeight ? Number(updateData.totalWeight) : (katte * weightPerKatta) - (katte * (Number(updateData.minusWeight ?? existingStock.minusWeight) || 0));
     const rawAmount = rateType === "per_kg"
         ? totalWeight * purchaseRate
         : katte * purchaseRate;

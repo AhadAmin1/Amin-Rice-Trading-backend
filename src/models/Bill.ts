@@ -19,6 +19,7 @@ export interface IBill extends mongoose.Document {
   profit: number;
   bhardana?: number;
   bhardanaRate?: number;
+  minusWeight?: number;
   paidAmount: number;
   status: 'unpaid' | 'partial' | 'paid';
   paymentType?: 'cash' | 'credit';
@@ -46,6 +47,7 @@ const BillSchema = new mongoose.Schema<IBill>(
     profit: Number,
     bhardana: { type: Number, default: 0 },
     bhardanaRate: { type: Number, default: 0 },
+    minusWeight: { type: Number, default: 0 },
     paidAmount: { type: Number, default: 0 },
     status: { type: String, enum: ['unpaid', 'partial', 'paid'], default: 'unpaid' },
     paymentType: { type: String, enum: ['cash', 'credit'], default: 'cash' },

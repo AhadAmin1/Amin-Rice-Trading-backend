@@ -11,6 +11,7 @@ export interface IProfit extends Document {
   totalWeight: number;
   sellingAmount: number;
   purchaseCost: number;
+  weightGainProfit: number;
   profit: number;
 }
 
@@ -25,6 +26,7 @@ const ProfitSchema = new Schema({
   totalWeight: { type: Number, required: true },
   sellingAmount: { type: Number, required: true },
   purchaseCost: { type: Number, required: true },
+  weightGainProfit: { type: Number, default: 0 },
   profit: { type: Number, required: true },
 }, { timestamps: true });
 
